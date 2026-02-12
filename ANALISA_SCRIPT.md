@@ -59,3 +59,39 @@ File ini adalah **script front-end utama** untuk dashboard StreamFire. Fungsinya
 
 - Script ini bergantung pada elemen HTML tertentu (id/class) dan endpoint backend yang sesuai.
 - Kalau ada elemen UI yang tidak muncul, biasanya karena id/class di view berubah tapi script belum ikut diupdate.
+
+
+## Apakah Butuh Backend?
+
+**Iya, butuh backend.**
+
+`public/js/script.js` tidak bisa jalan sendirian sebagai file HTML statis karena dia memanggil API dan Socket server berikut:
+
+- `GET /api/system/stats`
+- `POST /api/upload/local`
+- `POST /api/stream/start`
+- `POST /api/stream/stop`
+- `POST /api/stream/config`
+- `DELETE /api/video/:id`
+- Socket.IO event: `newLog`, `streamStatuses`, `streamStatus`
+
+Kalau backend tidak hidup, fitur-fitur di dashboard (upload, start stream, status realtime, save config) tidak akan berfungsi.
+
+## Cara Menjalankan (Simple)
+
+1. Install dependency utama: **Node.js (>=18)**, **npm**, dan **FFmpeg**.
+2. Install package project:
+   ```bash
+   npm install
+   ```
+3. Jalankan server:
+   ```bash
+   npm start
+   ```
+4. Buka dashboard di browser (default dari README):
+   ```
+   http://localhost:7575
+   ```
+   atau `http://IP_SERVER:7575` kalau dijalankan di VPS.
+
+> Intinya: file `script.js` ini adalah sisi **frontend** yang kontrol UI, sedangkan proses utama (API, socket, FFmpeg, simpan config) tetap dikerjakan oleh **backend Node.js**.
