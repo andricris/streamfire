@@ -13,11 +13,25 @@ function sanitizeRtmpUrl(rawUrl) {
 
   if (!cleaned) return '';
 
+  // Facebook stream keys are usually copied in `FB-xxxx` format.
+  // If user accidentally puts key in custom mode, normalize into full RTMPS URL.
+  if (!/^rtmps?:\/\//i.test(cleaned) && /^FB-[A-Za-z0-9-]+$/i.test(cleaned.replace(/\s+/g, ''))) {
+    cleaned = `rtmps://live-api-s.facebook.com:443/rtmp/${cleaned.replace(/\s+/g, '')}`;
+  }
+
   if (/^rtmps?:\/\/live-api-s\.facebook\.com:443\/rtmp\/rtmps?:\/\//i.test(cleaned)) {
     cleaned = cleaned.replace(/^rtmps?:\/\/live-api-s\.facebook\.com:443\/rtmp\//i, '');
   }
 
   return cleaned;
+}
+
+function maskDestination(url) {
+  if (!url) return '';
+  const parts = url.split('/');
+  const key = parts.pop() || '';
+  const maskedKey = key.length <= 8 ? '***' : `${key.slice(0, 4)}***${key.slice(-4)}`;
+  return `${parts.join('/')}/${maskedKey}`;
 }
 
 function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280x720', fps: 30 }, loop = false, customRtmp) {
@@ -101,6 +115,11 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
   );
 
   logger.info(`System FFmpeg Start: ${w}x${h} @ ${fps}fps to ${targets.length} destination(s)`);
+  logger.info(`Targets: ${targets.map(maskDestination).join(', ')}`);
+
+  if (typeof global.addLog === 'function') {
+    global.addLog(`FFmpeg start ${w}x${h} ${fps}fps -> ${targets.length} tujuan`, 'info');
+  }
 
   const proc = spawn(ffmpeg, args);
   let lastLog = '';
@@ -111,12 +130,18 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
 
     if (/error|failed|invalid|denied|forbidden|refused|timed out|handshake/i.test(chunk)) {
       logger.error(`FFmpeg stderr: ${chunk.trim().slice(-300)}`);
+      if (typeof global.addLog === 'function') {
+        global.addLog(`FFmpeg: ${chunk.trim().slice(-140)}`, 'error');
+      }
     }
   });
 
   proc.on('close', (code, signal) => {
     if (code !== 0 && code !== 255 && signal !== 'SIGTERM') {
       logger.error(`FFmpeg Error (${signal || code}). Log: ${lastLog.slice(-300)}`);
+      if (typeof global.addLog === 'function') {
+        global.addLog(`Stream gagal (${signal || code}): ${lastLog.slice(-140)}`, 'error');
+      }
     } else {
       logger.info(`Stream stopped.`);
     }
