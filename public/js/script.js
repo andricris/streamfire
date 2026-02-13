@@ -195,7 +195,20 @@ document.querySelectorAll('.start-btn').forEach(btn => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ videoId: id, settings: { resolution: res, bitrate: bit, fps: fps }, loop: loop, customRtmp: destinations })
                 });
-                if (!resp.ok) throw new Error('Failed to start');
+
+                let payload = null;
+                try {
+                    payload = await resp.json();
+                } catch (_) {
+                    payload = null;
+                }
+
+                if (!resp.ok) {
+                    const message = payload && payload.error
+                        ? payload.error
+                        : `Failed to start (HTTP ${resp.status})`;
+                    throw new Error(message);
+                }
             } catch (e) {
                 Swal.fire({ icon: 'error', title: 'Stream Error', text: e.message, background: '#1f2937', color: '#fff' });
                 this.innerHTML = '<i class="fas fa-play text-xs"></i> Start Stream';
