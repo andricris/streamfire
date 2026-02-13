@@ -2,6 +2,8 @@ const db = require('../models/database');
 const { startStream } = require('../services/ffmpegService');
 const logger = require('../utils/logger');
 
+const START_GRACE_MS = 4000;
+
 function startLiveStream(req, res) {
   const { videoId, settings, loop, customRtmp } = req.body;
 
@@ -25,12 +27,35 @@ function startLiveStream(req, res) {
         return res.status(500).json({ error: 'File video tidak ditemukan di server (Corrupt/Hilang).' });
       }
 
-      global.streamProcesses[videoId] = { pid: proc.pid, proc };
-      db.run("UPDATE videos SET views = views + 1, destinations = ?, start_time = datetime('now', 'localtime'), resolution = ?, bitrate = ?, fps = ?, loop = ? WHERE id = ?",
-        [JSON.stringify(customRtmp), settings.resolution, settings.bitrate, settings.fps, loop ? 1 : 0, videoId]);
+      let responded = false;
 
-      global.io.emit('streamStatus', { videoId, pid: proc.pid, running: true, startTime: new Date() });
-      res.json({ message: 'Streaming started!', pid: proc.pid });
+      const onEarlyClose = (code, signal) => {
+        if (responded) return;
+        responded = true;
+        logger.error(`FFmpeg exited too early for video ${videoId} (${signal || code}).`);
+        return res.status(500).json({ error: 'FFmpeg langsung berhenti. Cek key Facebook / koneksi / format video.' });
+      };
+
+      proc.once('close', onEarlyClose);
+
+      setTimeout(() => {
+        if (responded) return;
+
+        if (proc.exitCode !== null && proc.exitCode !== undefined) {
+          responded = true;
+          return res.status(500).json({ error: `FFmpeg berhenti saat start (code ${proc.exitCode}).` });
+        }
+
+        proc.removeListener('close', onEarlyClose);
+        global.streamProcesses[videoId] = { pid: proc.pid, proc };
+
+        db.run("UPDATE videos SET views = views + 1, destinations = ?, start_time = datetime('now', 'localtime'), resolution = ?, bitrate = ?, fps = ?, loop = ? WHERE id = ?",
+          [JSON.stringify(customRtmp), settings.resolution, settings.bitrate, settings.fps, loop ? 1 : 0, videoId]);
+
+        global.io.emit('streamStatus', { videoId, pid: proc.pid, running: true, startTime: new Date() });
+        responded = true;
+        return res.json({ message: 'Streaming started!', pid: proc.pid });
+      }, START_GRACE_MS);
 
     } catch (error) {
       logger.error(`Critical Stream Error: ${error.message}`);
