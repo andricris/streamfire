@@ -4,6 +4,22 @@ const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 
+function sanitizeRtmpUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+
+  let cleaned = rawUrl
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+
+  if (!cleaned) return '';
+
+  if (/^rtmps?:\/\/live-api-s\.facebook\.com:443\/rtmp\/rtmps?:\/\//i.test(cleaned)) {
+    cleaned = cleaned.replace(/^rtmps?:\/\/live-api-s\.facebook\.com:443\/rtmp\//i, '');
+  }
+
+  return cleaned;
+}
+
 function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280x720', fps: 30 }, loop = false, customRtmp) {
 
   let absolutePath = videoPath;
@@ -61,15 +77,20 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
 
   let destinationStr = '';
 
-  if (Array.isArray(customRtmp)) {
-    if (customRtmp.length === 0) return null;
+  const targets = Array.isArray(customRtmp)
+    ? customRtmp.map(sanitizeRtmpUrl).filter(Boolean)
+    : [sanitizeRtmpUrl(customRtmp)].filter(Boolean);
 
-    const outputs = customRtmp.map(url => {
-      return `[f=flv:onfail=ignore]${url}`;
-    });
+  if (targets.length === 0) {
+    logger.error('FATAL: Empty RTMP destination after sanitization.');
+    return null;
+  }
+
+  if (Array.isArray(customRtmp)) {
+    const outputs = targets.map(url => `[f=flv:onfail=ignore]${url}`);
     destinationStr = outputs.join('|');
   } else {
-    destinationStr = `[f=flv:onfail=ignore]${customRtmp}`;
+    destinationStr = `[f=flv:onfail=ignore]${targets[0]}`;
   }
 
   args.push(
@@ -79,13 +100,18 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
     destinationStr
   );
 
-  logger.info(`System FFmpeg Start: ${w}x${h} @ ${fps}fps`);
+  logger.info(`System FFmpeg Start: ${w}x${h} @ ${fps}fps to ${targets.length} destination(s)`);
 
   const proc = spawn(ffmpeg, args);
   let lastLog = '';
 
   proc.stderr.on('data', data => {
-    lastLog = data.toString();
+    const chunk = data.toString();
+    lastLog = chunk;
+
+    if (/error|failed|invalid|denied|forbidden|refused|timed out|handshake/i.test(chunk)) {
+      logger.error(`FFmpeg stderr: ${chunk.trim().slice(-300)}`);
+    }
   });
 
   proc.on('close', (code, signal) => {
