@@ -110,7 +110,7 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
   args.push(
     '-f', 'tee',
     '-map', '0:v',
-    '-map', '0:a',
+    '-map', '0:a?',
     destinationStr
   );
 
@@ -123,6 +123,13 @@ function startStream(videoPath, settings = { bitrate: '2500k', resolution: '1280
 
   const proc = spawn(ffmpeg, args);
   let lastLog = '';
+
+  proc.on('error', (err) => {
+    logger.error(`FFmpeg spawn error: ${err.message}`);
+    if (typeof global.addLog === 'function') {
+      global.addLog(`FFmpeg tidak bisa dijalankan: ${err.message}`, 'error');
+    }
+  });
 
   proc.stderr.on('data', data => {
     const chunk = data.toString();
